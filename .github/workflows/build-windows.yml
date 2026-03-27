@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Windows Build - FIXED v2
+# TELECLOUD-MULTI Windows Build - FIXED v3
 name: Build Windows EXE
 
 on:
@@ -27,7 +27,7 @@ jobs:
         id: cache-qt
         with:
           path: C:\Qt
-          key: qt-${{ env.QT_VERSION }}-win64-v6
+          key: qt-${{ env.QT_VERSION }}-win64-v7
 
       - name: Install Qt
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -40,7 +40,7 @@ jobs:
         id: cache-ffmpeg
         with:
           path: C:\ffmpeg
-          key: ffmpeg-win64-gpl-shared-v7
+          key: ffmpeg-win64-gpl-shared-v8
 
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -82,6 +82,9 @@ jobs:
           cd build
           cmake --build . --config Release --parallel $env:NUMBER_OF_PROCESSORS
           
+          # Create Release directory
+          mkdir Release -Force
+          
           # The exe is in build\src\Release\ because of add_subdirectory(src)
           $exePath = "src\Release\telecloud-multi.exe"
           if (Test-Path $exePath) {
@@ -91,6 +94,7 @@ jobs:
             echo "build_success=true" >> $env:GITHUB_OUTPUT
           } else {
             Write-Host "Build output not found at $exePath"
+            dir src\Release -ErrorAction SilentlyContinue
             echo "build_success=false" >> $env:GITHUB_OUTPUT
           }
 
