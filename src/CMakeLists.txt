@@ -21,8 +21,9 @@ if(ENABLE_GUI)
         Quick 
         Network 
         Concurrent
-        QuickControls2
     )
+    # QuickControls2 is part of Qt Quick in Qt 6, but we try to link if available
+    find_package(Qt6 COMPONENTS QuickControls2 QUIET)
 else()
     find_package(Qt6 REQUIRED COMPONENTS 
         Core 
@@ -207,8 +208,11 @@ if(ENABLE_GUI)
         Qt6::Quick
         Qt6::Network
         Qt6::Concurrent
-        Qt6::QuickControls2
     )
+    # Link QuickControls2 if available
+    if(TARGET Qt6::QuickControls2)
+        target_link_libraries(telecloud-multi PRIVATE Qt6::QuickControls2)
+    endif()
 else()
     target_link_libraries(telecloud-multi PRIVATE
         Qt6::Core

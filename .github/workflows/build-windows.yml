@@ -12,28 +12,20 @@ on:
   workflow_dispatch:
 
 env:
-  QT_VERSION: '6.6.3'
+  QT_VERSION: '6.5.3'
 
 jobs:
   build-windows:
     name: Build Windows x64
     runs-on: windows-2022
-    timeout-minutes: 15
-    
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      # Cache Qt - accélère de 2 min à 5 sec
-      - name: Cache Qt
-        uses: actions/cache@v4
-        id: cache-qt
-        with:
-          path: C:\Qt
-          key: qt-${{ env.QT_VERSION }}-win-msvc2022-v3
-      
+
+      # Install Qt - jurplel/install-qt-action handles caching automatically
       - name: Install Qt
-        if: steps.cache-qt.outputs.cache-hit != 'true'
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -41,75 +33,82 @@ jobs:
           target: desktop
           arch: win64_msvc2019_64
           dir: C:\Qt
-          modules: 'qtbase qtdeclarative qtshadertools qtquickcontrols2'
+          modules: ''
           cache: true
-      
-      # Cache FFmpeg - accélère de 1 min à instant
+          setup-python: false
+
+      # Cache FFmpeg
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: C:\ffmpeg
-          key: ffmpeg-win64-gpl-shared-v3
-      
+          key: ffmpeg-win64-gpl-shared-v5
+
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           mkdir C:\ffmpeg
           cd C:\ffmpeg
-          
-          # Download FFmpeg shared build
+
+          # Download FFmpeg shared build from reliable source
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile ffmpeg.zip
           Expand-Archive -Path ffmpeg.zip -DestinationPath .
-          
+
           # Move to standard structure
           Move-Item ffmpeg-master-latest-win64-gpl-shared\bin bin
           Move-Item ffmpeg-master-latest-win64-gpl-shared\lib lib
           Move-Item ffmpeg-master-latest-win64-gpl-shared\include include
           Remove-Item ffmpeg.zip
           Remove-Item -Recurse ffmpeg-master-latest-win64-gpl-shared
-      
+
       # Setup MSVC
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      
+
       # Configure
       - name: Configure CMake
         run: |
           mkdir build
           cd build
-          
+
+          # Find Qt installation path
+          $QT_PATH = Get-ChildItem -Path "C:\Qt" -Filter "msvc2019_64" -Directory -Recurse | Select-Object -First 1
+
           cmake .. `
             -G "Visual Studio 17 2022" `
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="C:\Qt\${{ env.QT_VERSION }}\msvc2019_64" `
+            -DCMAKE_PREFIX_PATH="$($QT_PATH.FullName)" `
             -DFFMPEG_ROOT="C:\ffmpeg" `
             -DENABLE_GUI=ON
-      
+
       # Build
       - name: Build
         run: |
           cd build
           cmake --build . --config Release --parallel $env:NUMBER_OF_PROCESSORS
-      
+
       # Deploy Qt dependencies
       - name: Deploy Qt Dependencies
         run: |
           cd build\Release
-          
+
           # Copy FFmpeg DLLs
           Copy-Item "C:\ffmpeg\bin\*.dll" .
-          
+
+          # Find windeployqt
+          $DEPLOYQT = Get-ChildItem -Path "C:\Qt" -Filter "windeployqt.exe" -File -Recurse | Select-Object -First 1
+
           # Deploy Qt
-          & "C:\Qt\${{ env.QT_VERSION }}\msvc2019_64\bin\windeployqt.exe" `
+          & "$($DEPLOYQT.FullName)" `
             --release `
             --no-translations `
             --no-system-d3d-compiler `
             telecloud-multi.exe
-      
+
       # Create package
       - name: Create Package
         run: |
@@ -118,9 +117,9 @@ jobs:
           Copy-Item "build\Release\*.dll" dist\
           Copy-Item "Icon.png" dist\ -ErrorAction SilentlyContinue
           Copy-Item "README.md" dist\ -ErrorAction SilentlyContinue
-          
+
           Compress-Archive -Path dist\* -DestinationPath telecloud-multi-windows-x64.zip
-      
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -133,14 +132,14 @@ jobs:
     needs: build-windows
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           name: windows-x64
           path: artifacts
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:

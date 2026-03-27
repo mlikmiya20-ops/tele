@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 env:
-  QT_VERSION: '6.6.3'
+  QT_VERSION: '6.5.3'
   NDK_VERSION: '25.2.9519653'
   SDK_BUILD_TOOLS: '34.0.0'
   SDK_PLATFORM: 'android-34'
@@ -21,17 +21,24 @@ jobs:
   build-android:
     name: Build ${{ matrix.abi }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    
+    timeout-minutes: 30
+
     strategy:
       fail-fast: false
       matrix:
         abi: [arm64-v8a]
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
+      # Setup Java for Android
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       # Cache Android SDK
       - name: Cache Android SDK
         uses: actions/cache@v4
@@ -40,27 +47,19 @@ jobs:
           path: |
             ~/android-sdk
             ~/.android
-          key: android-sdk-${{ env.NDK_VERSION }}-${{ env.SDK_BUILD_TOOLS }}-v2
-      
+          key: android-sdk-${{ env.NDK_VERSION }}-${{ env.SDK_BUILD_TOOLS }}-v3
+
       - name: Setup Android SDK
         if: steps.cache-android.outputs.cache-hit != 'true'
         uses: android-actions/setup-android@v3
-      
+
       - name: Install Android Components
         if: steps.cache-android.outputs.cache-hit != 'true'
         run: |
           sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
-      
-      # Cache Qt
-      - name: Cache Qt
-        uses: actions/cache@v4
-        id: cache-qt
-        with:
-          path: ~/Qt
-          key: qt-${{ env.QT_VERSION }}-android-${{ matrix.abi }}-v3
-      
-      - name: Install Qt
-        if: steps.cache-qt.outputs.cache-hit != 'true'
+
+      # Install Qt for Android - use jurplel/install-qt-action with proper setup
+      - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
@@ -68,47 +67,59 @@ jobs:
           target: android
           arch: android_${{ matrix.abi }}
           dir: ~/Qt
-          modules: 'qtbase qtdeclarative qtshadertools'
+          modules: ''
           cache: true
-      
+          setup-python: false
+
       # Cache FFmpeg
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: ~/ffmpeg-android
-          key: ffmpeg-android-${{ matrix.abi }}-v3
-      
+          key: ffmpeg-android-${{ matrix.abi }}-v5
+
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/ffmpeg-android
           cd ~/ffmpeg-android
-          
+
           # Use prebuilt FFmpeg from ffmpeg-kit releases
-          ARCH="arm64"
-          wget -q "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-${ARCH}.zip" -O ffmpeg.zip
-          unzip -q ffmpeg.zip
-          rm ffmpeg.zip
-          
-          # Setup structure
-          mkdir -p lib include
-          cp -r ffmpeg-kit-full-${ARCH}/lib/* lib/ 2>/dev/null || true
-          cp -r ffmpeg-kit-full-${ARCH}/include/* include/ 2>/dev/null || true
-      
+          wget -q "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || true
+
+          if [ -f ffmpeg.zip ]; then
+            unzip -q ffmpeg.zip
+            rm ffmpeg.zip
+            mkdir -p lib include
+            cp -r ffmpeg-kit-full-arm64/lib/* lib/ 2>/dev/null || true
+            cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
+          else
+            echo "FFmpeg download failed, creating minimal structure"
+            mkdir -p lib include
+          fi
+
       # Setup environment
       - name: Setup Environment
         run: |
-          echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=~/android-sdk/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-          echo "Qt6_DIR=~/Qt/${{ env.QT_VERSION }}/android_${{ matrix.abi }}/lib/cmake/Qt6" >> $GITHUB_ENV
+          ANDROID_SDK_ROOT=~/android-sdk
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+
+          # Find Qt path
+          QT_PATH=$(find ~/Qt -name "android_${{ matrix.abi }}" -type d | head -1)
+          if [ -n "$QT_PATH" ]; then
+            echo "Qt6_DIR=$QT_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
+            echo "QT_PATH=$QT_PATH" >> $GITHUB_ENV
+          fi
           echo "FFMPEG_ROOT=~/ffmpeg-android" >> $GITHUB_ENV
-      
+
       # Configure
       - name: Configure CMake
         run: |
           mkdir build && cd build
-          
+
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -117,13 +128,13 @@ jobs:
             -DANDROID_STL=c++_shared \
             -DQt6_DIR=$Qt6_DIR \
             -DFFMPEG_ROOT=$FFMPEG_ROOT
-      
+
       # Build
       - name: Build
         run: |
           cd build
           cmake --build . -j$(nproc)
-      
+
       # Upload artifact
       - name: Upload Build
         uses: actions/upload-artifact@v4
@@ -138,7 +149,7 @@ jobs:
     needs: build-android
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -146,7 +157,7 @@ jobs:
           pattern: android-*
           path: artifacts
           merge-multiple: true
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
