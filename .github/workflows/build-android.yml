@@ -44,23 +44,31 @@ jobs:
         id: cache-qt
         with:
           path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-arm64-v10
+          key: qt-${{ env.QT_VERSION }}-android-full-v1
 
       - name: Install aqtinstall
         run: pip install aqtinstall
 
+      - name: Install Qt for Desktop
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        run: |
+          python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 \
+            --outputdir /home/runner/Qt \
+            --modules qtshadertools
+
       - name: Install Qt for Android
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
-          python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
-          python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
+          python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a \
+            --outputdir /home/runner/Qt \
+            --modules qtshadertools
 
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v9
+          key: ffmpeg-android-arm64-v10
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -84,16 +92,13 @@ jobs:
             echo "FFmpeg download failed, creating stub headers..."
             rm -f ffmpeg.zip
             mkdir -p lib include/libavcodec include/libavformat include/libavutil include/libswscale include/libswresample
-            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\ntypedef struct AVCodecContext { int dummy; } AVCodecContext;\ntypedef struct AVPacket { int dummy; } AVPacket;\n#endif\n' > include/libavcodec/avcodec.h
-            printf '#ifndef AVFORMAT_H\n#define AVFORMAT_H\ntypedef struct AVFormatContext { int dummy; } AVFormatContext;\n#endif\n' > include/libavformat/avformat.h
+            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\n#endif\n' > include/libavcodec/avcodec.h
+            printf '#ifndef AVFORMAT_H\n#define AVFORMAT_H\n#endif\n' > include/libavformat/avformat.h
             printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
-            printf '#ifndef SWSCALE_H\n#define SWSCALE_H\n#endif\n' > include/libswscale/swscale.h
-            printf '#ifndef SWRESAMPLE_H\n#define SWRESAMPLE_H\n#endif\n' > include/libswresample/swresample.h
           fi
 
       - name: Setup Environment
         run: |
-          # Use the default Android SDK location from android-actions/setup-android
           ANDROID_SDK_ROOT=$ANDROID_HOME
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
@@ -103,6 +108,7 @@ jobs:
           QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
           QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
           echo "Qt6_DIR=$QT_ANDROID_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "Qt6Core_DIR=$QT_ANDROID_PATH/lib/cmake/Qt6Core" >> $GITHUB_ENV
           echo "QT_ANDROID_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
           echo "QT_HOST_PATH=$QT_HOST_PATH" >> $GITHUB_ENV
           echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
@@ -110,9 +116,11 @@ jobs:
           echo "$QT_ANDROID_PATH/bin" >> $GITHUB_PATH
           echo "$QT_HOST_PATH/bin" >> $GITHUB_PATH
           
-          # Verify NDK exists
-          echo "Checking NDK..."
-          ls -la $ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}/ || echo "NDK not found!"
+          # Verify Qt installation
+          echo "=== Qt Installation ==="
+          ls -la /home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a/lib/cmake/ | head -20
+          echo "=== Qt6Core ==="
+          ls -la /home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a/lib/cmake/Qt6Core/ 2>/dev/null || echo "Qt6Core not found"
 
       - name: Configure CMake
         run: |
@@ -124,9 +132,9 @@ jobs:
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
             -DQt6_DIR=$Qt6_DIR \
+            -DQt6Core_DIR=$Qt6Core_DIR \
             -DQT_HOST_PATH=$QT_HOST_PATH \
-            -DFFMPEG_ROOT=$FFMPEG_ROOT \
-            -DANDROID_PACKAGE_SOURCE_DIR=$GITHUB_WORKSPACE/android
+            -DFFMPEG_ROOT=$FFMPEG_ROOT
 
       - name: Build
         run: |
@@ -137,34 +145,25 @@ jobs:
         run: |
           cd build
           
-          ANDROID_DEPLOY_QT="$QT_HOST_PATH/bin/androiddeployqt"
-          if [ ! -f "$ANDROID_DEPLOY_QT" ]; then
-            ANDROID_DEPLOY_QT="$QT_ANDROID_PATH/bin/androiddeployqt"
-          fi
-          
-          echo "Using androiddeployqt: $ANDROID_DEPLOY_QT"
-          
-          if [ -f "android_telecloud-multi-deployment-settings.json" ]; then
-            echo "Found deployment settings file"
+          # Check if deployment settings file exists
+          if ls android_*-deployment-settings.json 1>/dev/null 2>&1; then
+            SETTINGS_FILE=$(ls android_*-deployment-settings.json | head -1)
+            echo "Found deployment settings: $SETTINGS_FILE"
             
-            $ANDROID_DEPLOY_QT \
-              --input android_telecloud-multi-deployment-settings.json \
+            # Run androiddeployqt
+            $QT_HOST_PATH/bin/androiddeployqt \
+              --input $SETTINGS_FILE \
               --output android-build \
               --android-platform $SDK_PLATFORM \
               --gradle \
               --release
               
+            echo "=== APK Files ==="
             find . -name "*.apk" -type f
           else
-            echo "Deployment settings file not found"
-            find . -name "*.so" -o -name "*.apk" -o -name "telecloud-multi" 2>/dev/null
+            echo "No deployment settings file found, listing build artifacts..."
+            find . -name "*.so" -o -name "telecloud-multi" 2>/dev/null
           fi
-
-      - name: List Build Artifacts
-        run: |
-          echo "=== Build Artifacts ==="
-          find build -name "*.apk" -o -name "*.so" -o -name "*.aab" 2>/dev/null || true
-          ls -la build/android-build/ 2>/dev/null || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -173,7 +172,6 @@ jobs:
           path: |
             build/**/*.apk
             build/**/*.aab
-            build/android-build/build/outputs/**/*.apk
           retention-days: 30
           if-no-files-found: ignore
 
