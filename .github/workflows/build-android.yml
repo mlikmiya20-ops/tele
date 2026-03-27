@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - FIXED v4
+# TELECLOUD-MULTI Android Build - With APK generation
 name: Build Android APK
 
 on:
@@ -19,7 +19,7 @@ jobs:
   build-android:
     name: Build Android arm64
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -38,7 +38,7 @@ jobs:
           path: |
             ~/android-sdk
             ~/.android
-          key: android-sdk-${{ env.NDK_VERSION }}-v7
+          key: android-sdk-${{ env.NDK_VERSION }}-v8
 
       - name: Setup Android SDK
         if: steps.cache-android.outputs.cache-hit != 'true'
@@ -55,18 +55,17 @@ jobs:
         id: cache-qt
         with:
           path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-arm64-v8
+          key: qt-${{ env.QT_VERSION }}-android-arm64-v9
 
       - name: Install aqtinstall
         run: pip install aqtinstall
 
-      - name: List available Android architectures
-        run: python -m aqt list-qt linux android --arch ${{ env.QT_VERSION }} || true
-
       - name: Install Qt for Android
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
+          # Install Qt for desktop (required for build tools)
           python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
+          # Install Qt for Android
           python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
 
       - name: Cache FFmpeg
@@ -74,7 +73,7 @@ jobs:
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v7
+          key: ffmpeg-android-arm64-v8
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -99,7 +98,7 @@ jobs:
             echo "FFmpeg download failed, creating stub headers..."
             rm -f ffmpeg.zip
             mkdir -p lib include/libavcodec include/libavformat include/libavutil include/libswscale include/libswresample
-            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\ntypedef struct AVCodecContext { int dummy; } AVCodecContext;\n#endif\n' > include/libavcodec/avcodec.h
+            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\ntypedef struct AVCodecContext { int dummy; } AVCodecContext;\ntypedef struct AVPacket { int dummy; } AVPacket;\n#endif\n' > include/libavcodec/avcodec.h
             printf '#ifndef AVFORMAT_H\n#define AVFORMAT_H\ntypedef struct AVFormatContext { int dummy; } AVFormatContext;\n#endif\n' > include/libavformat/avformat.h
             printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
             printf '#ifndef SWSCALE_H\n#define SWSCALE_H\n#endif\n' > include/libswscale/swscale.h
@@ -113,10 +112,18 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          
           QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
+          QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
           echo "Qt6_DIR=$QT_ANDROID_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "QT_ANDROID_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
+          echo "QT_HOST_PATH=$QT_HOST_PATH" >> $GITHUB_ENV
           echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
+          
+          # Add Qt to PATH for androiddeployqt
+          echo "$QT_ANDROID_PATH/bin" >> $GITHUB_PATH
+          echo "$QT_HOST_PATH/bin" >> $GITHUB_PATH
 
       - name: Configure CMake
         run: |
@@ -128,22 +135,68 @@ jobs:
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
             -DQt6_DIR=$Qt6_DIR \
-            -DFFMPEG_ROOT=$FFMPEG_ROOT || echo "Configure completed"
+            -DQT_HOST_PATH=$QT_HOST_PATH \
+            -DFFMPEG_ROOT=$FFMPEG_ROOT \
+            -DANDROID_PACKAGE_SOURCE_DIR=$GITHUB_WORKSPACE/android
 
       - name: Build
         run: |
           cd build
-          cmake --build . -j$(nproc) 2>&1 || true
-          find . -name "*.apk" -o -name "*.so" -o -name "telecloud-multi" 2>/dev/null || true
+          cmake --build . -j$(nproc)
 
-      - name: Upload Build
+      - name: Create APK
+        run: |
+          cd build
+          
+          # Find androiddeployqt
+          ANDROID_DEPLOY_QT="$QT_HOST_PATH/bin/androiddeployqt"
+          if [ ! -f "$ANDROID_DEPLOY_QT" ]; then
+            ANDROID_DEPLOY_QT="$QT_ANDROID_PATH/bin/androiddeployqt"
+          fi
+          
+          echo "Using androiddeployqt: $ANDROID_DEPLOY_QT"
+          echo "Qt Android path: $QT_ANDROID_PATH"
+          echo "Android SDK: $ANDROID_SDK_ROOT"
+          
+          # Check if deployment-settings.json exists
+          if [ -f "android_telecloud-multi-deployment-settings.json" ]; then
+            echo "Found deployment settings file"
+            
+            # Run androiddeployqt to create APK
+            $ANDROID_DEPLOY_QT \
+              --input android_telecloud-multi-deployment-settings.json \
+              --output android-build \
+              --android-platform $SDK_PLATFORM \
+              --gradle \
+              --release
+              
+            # Find and list APKs
+            echo "Looking for APKs..."
+            find . -name "*.apk" -type f
+          else
+            echo "Deployment settings file not found, listing build artifacts..."
+            find . -name "*.so" -o -name "*.apk" -o -name "telecloud-multi" 2>/dev/null
+          fi
+
+      - name: List Build Artifacts
+        run: |
+          echo "=== Build Artifacts ==="
+          find build -name "*.apk" -o -name "*.so" -o -name "*.aab" 2>/dev/null || true
+          echo ""
+          echo "=== Android build directory ==="
+          ls -la build/android-build/ 2>/dev/null || echo "No android-build directory"
+          echo ""
+          echo "=== Build directory ==="
+          ls -la build/ 2>/dev/null || true
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-arm64
           path: |
-            build/*.apk
-            build/**/*.so
-            build/telecloud-multi
+            build/**/*.apk
+            build/**/*.aab
+            build/android-build/build/outputs/**/*.apk
           retention-days: 30
           if-no-files-found: ignore
 
