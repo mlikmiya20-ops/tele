@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - Fixed v2
+# TELECLOUD-MULTI Android Build - Fixed v3
 name: Build Android APK
 
 on:
@@ -34,10 +34,8 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android Components
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
 
       - name: Install aqtinstall
         run: pip install aqtinstall
@@ -53,66 +51,52 @@ jobs:
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v13
+          key: ffmpeg-android-arm64-v14
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           mkdir -p /home/runner/ffmpeg-android
           cd /home/runner/ffmpeg-android
-          
           wget -q --timeout=60 "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || true
           
           if [ -f ffmpeg.zip ] && [ -s ffmpeg.zip ]; then
-            echo "FFmpeg downloaded, extracting..."
             unzip -q ffmpeg.zip || true
             rm -f ffmpeg.zip
             mkdir -p lib include
-            if [ -d "ffmpeg-kit-full-arm64" ]; then
-              cp -r ffmpeg-kit-full-arm64/lib/* lib/ 2>/dev/null || true
-              cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
-              rm -rf ffmpeg-kit-full-arm64
-            fi
+            [ -d "ffmpeg-kit-full-arm64" ] && cp -r ffmpeg-kit-full-arm64/lib/* lib/ 2>/dev/null || true
+            [ -d "ffmpeg-kit-full-arm64" ] && cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
+            rm -rf ffmpeg-kit-full-arm64 2>/dev/null || true
           else
-            echo "FFmpeg download failed, creating stub headers..."
             rm -f ffmpeg.zip
             mkdir -p lib include/libavcodec include/libavformat include/libavutil
-            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\n#endif\n' > include/libavcodec/avcodec.h
-            printf '#ifndef AVFORMAT_H\n#define AVFORMAT_H\n#endif\n' > include/libavformat/avformat.h
-            printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
+            echo '#ifndef AVCODEC_H\n#define AVCODEC_H\n#endif' > include/libavcodec/avcodec.h
+            echo '#ifndef AVFORMAT_H\n#define AVFORMAT_H\n#endif' > include/libavformat/avformat.h
+            echo '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif' > include/libavutil/avutil.h
           fi
 
-      - name: Configure and Build
+      - name: Configure CMake
         run: |
-          # Set variables
-          QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
-          QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
-          ANDROID_NDK=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          
-          echo "QT_ANDROID_PATH=$QT_ANDROID_PATH"
-          echo "QT_HOST_PATH=$QT_HOST_PATH"
-          echo "ANDROID_NDK=$ANDROID_NDK"
-          
-          # Verify Qt exists
-          ls -la $QT_ANDROID_PATH/lib/cmake/Qt6/Qt6Config.cmake || echo "Qt6Config.cmake not found!"
-          
           mkdir build && cd build
           
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
-            -DCMAKE_PREFIX_PATH=$QT_ANDROID_PATH \
-            -DQT_HOST_PATH=$QT_HOST_PATH \
+            -DCMAKE_PREFIX_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a \
+            -DQT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64 \
             -DFFMPEG_ROOT=/home/runner/ffmpeg-android \
             -DENABLE_GUI=OFF
-          
+
+      - name: Build
+        run: |
+          cd build
           cmake --build . -j$(nproc)
           
           echo "=== Build Artifacts ==="
-          find . -name "telecloud-multi" -o -name "*.so" 2>/dev/null
+          find . -name "telecloud-multi" -o -name "*.so" 2>/dev/null || true
 
       - name: Upload Build
         uses: actions/upload-artifact@v4
@@ -129,10 +113,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-build-logs
-          path: |
-            build/CMakeCache.txt
-            build/CMakeFiles/CMakeOutput.log
-            build/CMakeFiles/CMakeError.log
+          path: build/CMakeCache.txt
           retention-days: 7
           if-no-files-found: ignore
 
