@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Windows Build - FIXED v3
+# TELECLOUD-MULTI Windows Build - FIXED v4
 name: Build Windows EXE
 
 on:
@@ -27,7 +27,7 @@ jobs:
         id: cache-qt
         with:
           path: C:\Qt
-          key: qt-${{ env.QT_VERSION }}-win64-v8
+          key: qt-${{ env.QT_VERSION }}-win64-v9
 
       - name: Install Qt
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -40,7 +40,7 @@ jobs:
         id: cache-ffmpeg
         with:
           path: C:\ffmpeg
-          key: ffmpeg-win64-gpl-shared-v8
+          key: ffmpeg-win64-gpl-shared-v9
 
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -108,33 +108,78 @@ jobs:
             Copy-Item "C:\ffmpeg\bin\*.dll" . -Force
           }
           
-          # Find and run windeployqt with Qt Quick support
+          # Find Qt installation path
           $QT_PATH = "C:\Qt\Qt\${{ env.QT_VERSION }}\msvc2019_64"
+          if (-not (Test-Path $QT_PATH)) {
+            $QT_PATH = (Get-ChildItem -Path "C:\Qt" -Filter "msvc2019_64" -Directory -Recurse | Select-Object -First 1).FullName
+          }
+          Write-Host "Qt path: $QT_PATH"
+          
+          # Set environment for windeployqt
+          $env:PATH = "$QT_PATH\bin;$env:PATH"
+          
+          # Run windeployqt with verbose output
           $DEPLOYQT = Join-Path $QT_PATH "bin\windeployqt.exe"
-          if (-not (Test-Path $DEPLOYQT)) {
-            $DEPLOYQT = (Get-ChildItem -Path "C:\Qt" -Filter "windeployqt.exe" -File -Recurse | Select-Object -First 1).FullName
+          Write-Host "Running windeployqt: $DEPLOYQT"
+          
+          # CRITICAL: Deploy Qt with Quick support
+          # --quick: Include Qt Quick/QML runtime
+          # --verbose 2: Show detailed output
+          & "$DEPLOYQT" --release --quick --verbose 2 telecloud-multi.exe
+          
+          # Verify platforms plugin was deployed
+          if (Test-Path "platforms\qwindows.dll") {
+            Write-Host "SUCCESS: Qt platform plugin deployed: platforms\qwindows.dll"
+          } else {
+            Write-Host "ERROR: qwindows.dll not found! Attempting manual copy..."
+            # Manual fallback - copy Qt plugins
+            $pluginsPath = Join-Path $QT_PATH "plugins"
+            if (Test-Path "$pluginsPath\platforms") {
+              Copy-Item "$pluginsPath\platforms" -Destination "platforms" -Recurse -Force
+              Write-Host "Copied platforms plugin manually"
+            }
           }
-          if (Test-Path $DEPLOYQT) {
-            Write-Host "Running windeployqt from: $DEPLOYQT"
-            # CRITICAL: --quick flag is required for Qt Quick/QML applications!
-            # Without it, QML runtime is not deployed and GUI won't show
-            & "$DEPLOYQT" --release --quick --no-translations --no-system-d3d-compiler telecloud-multi.exe
-            Write-Host "Qt Quick dependencies deployed successfully"
-          }
+          
+          # List all deployed files for verification
+          Write-Host "=== Deployed files ==="
+          Get-ChildItem -Recurse | Select-Object FullName
 
       - name: Create Package
         if: steps.build.outputs.build_success == 'true'
         run: |
+          # Create distribution directory
           mkdir dist -Force
-          Copy-Item "build\Release\telecloud-multi.exe" dist\ -Force
-          Copy-Item "build\Release\*.dll" dist\ -Force -ErrorAction SilentlyContinue
-          Copy-Item "Icon.png" dist\ -ErrorAction SilentlyContinue
-          Copy-Item "README.md" dist\ -ErrorAction SilentlyContinue
           
+          # CRITICAL: Copy ALL files including subdirectories (platforms/, QtQuick/, etc.)
+          # The platforms folder contains qwindows.dll which is REQUIRED
+          Copy-Item "build\Release\*" dist\ -Recurse -Force
+          
+          # Also copy documentation
+          Copy-Item "Icon.png" dist\ -Force -ErrorAction SilentlyContinue
+          Copy-Item "README.md" dist\ -Force -ErrorAction SilentlyContinue
+          
+          # Verify critical files exist
+          Write-Host "=== Verifying package contents ==="
+          if (Test-Path "dist\telecloud-multi.exe") {
+            Write-Host "OK: telecloud-multi.exe found"
+          } else {
+            Write-Host "ERROR: telecloud-multi.exe NOT FOUND!"
+          }
+          if (Test-Path "dist\platforms\qwindows.dll") {
+            Write-Host "OK: platforms/qwindows.dll found"
+          } else {
+            Write-Host "ERROR: platforms/qwindows.dll NOT FOUND!"
+          }
+          
+          # List final package contents
+          Write-Host "=== Final package contents ==="
+          Get-ChildItem dist -Recurse | Select-Object FullName
+          
+          # Create ZIP archive
           if (Test-Path "dist\telecloud-multi.exe") {
             Compress-Archive -Path dist\* -DestinationPath telecloud-multi-windows-x64.zip -Force
             Write-Host "Package created: telecloud-multi-windows-x64.zip"
-            Get-ChildItem dist
+            Get-ChildItem telecloud-multi-windows-x64.zip
           }
 
       - name: Upload Artifact
