@@ -31,21 +31,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Cache Android SDK
-        uses: actions/cache@v4
-        id: cache-android
-        with:
-          path: |
-            ~/android-sdk
-            ~/.android
-          key: android-sdk-${{ env.NDK_VERSION }}-v8
-
       - name: Setup Android SDK
-        if: steps.cache-android.outputs.cache-hit != 'true'
         uses: android-actions/setup-android@v3
 
       - name: Install Android Components
-        if: steps.cache-android.outputs.cache-hit != 'true'
         run: |
           yes | sdkmanager --licenses || true
           sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
@@ -55,7 +44,7 @@ jobs:
         id: cache-qt
         with:
           path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-arm64-v9
+          key: qt-${{ env.QT_VERSION }}-android-arm64-v10
 
       - name: Install aqtinstall
         run: pip install aqtinstall
@@ -63,9 +52,7 @@ jobs:
       - name: Install Qt for Android
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
-          # Install Qt for desktop (required for build tools)
           python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
-          # Install Qt for Android
           python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
 
       - name: Cache FFmpeg
@@ -73,7 +60,7 @@ jobs:
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v8
+          key: ffmpeg-android-arm64-v9
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -93,7 +80,6 @@ jobs:
               cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
               rm -rf ffmpeg-kit-full-arm64
             fi
-            echo "FFmpeg extraction complete"
           else
             echo "FFmpeg download failed, creating stub headers..."
             rm -f ffmpeg.zip
@@ -103,12 +89,12 @@ jobs:
             printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
             printf '#ifndef SWSCALE_H\n#define SWSCALE_H\n#endif\n' > include/libswscale/swscale.h
             printf '#ifndef SWRESAMPLE_H\n#define SWRESAMPLE_H\n#endif\n' > include/libswresample/swresample.h
-            echo "Stub headers created"
           fi
 
       - name: Setup Environment
         run: |
-          ANDROID_SDK_ROOT=/home/runner/android-sdk
+          # Use the default Android SDK location from android-actions/setup-android
+          ANDROID_SDK_ROOT=$ANDROID_HOME
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
@@ -121,9 +107,12 @@ jobs:
           echo "QT_HOST_PATH=$QT_HOST_PATH" >> $GITHUB_ENV
           echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
           
-          # Add Qt to PATH for androiddeployqt
           echo "$QT_ANDROID_PATH/bin" >> $GITHUB_PATH
           echo "$QT_HOST_PATH/bin" >> $GITHUB_PATH
+          
+          # Verify NDK exists
+          echo "Checking NDK..."
+          ls -la $ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}/ || echo "NDK not found!"
 
       - name: Configure CMake
         run: |
@@ -148,21 +137,16 @@ jobs:
         run: |
           cd build
           
-          # Find androiddeployqt
           ANDROID_DEPLOY_QT="$QT_HOST_PATH/bin/androiddeployqt"
           if [ ! -f "$ANDROID_DEPLOY_QT" ]; then
             ANDROID_DEPLOY_QT="$QT_ANDROID_PATH/bin/androiddeployqt"
           fi
           
           echo "Using androiddeployqt: $ANDROID_DEPLOY_QT"
-          echo "Qt Android path: $QT_ANDROID_PATH"
-          echo "Android SDK: $ANDROID_SDK_ROOT"
           
-          # Check if deployment-settings.json exists
           if [ -f "android_telecloud-multi-deployment-settings.json" ]; then
             echo "Found deployment settings file"
             
-            # Run androiddeployqt to create APK
             $ANDROID_DEPLOY_QT \
               --input android_telecloud-multi-deployment-settings.json \
               --output android-build \
@@ -170,11 +154,9 @@ jobs:
               --gradle \
               --release
               
-            # Find and list APKs
-            echo "Looking for APKs..."
             find . -name "*.apk" -type f
           else
-            echo "Deployment settings file not found, listing build artifacts..."
+            echo "Deployment settings file not found"
             find . -name "*.so" -o -name "*.apk" -o -name "telecloud-multi" 2>/dev/null
           fi
 
@@ -182,12 +164,7 @@ jobs:
         run: |
           echo "=== Build Artifacts ==="
           find build -name "*.apk" -o -name "*.so" -o -name "*.aab" 2>/dev/null || true
-          echo ""
-          echo "=== Android build directory ==="
-          ls -la build/android-build/ 2>/dev/null || echo "No android-build directory"
-          echo ""
-          echo "=== Build directory ==="
-          ls -la build/ 2>/dev/null || true
+          ls -la build/android-build/ 2>/dev/null || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
