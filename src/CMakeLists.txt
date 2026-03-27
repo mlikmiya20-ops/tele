@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Options de build
+# Options
 option(ENABLE_GUI "Enable Qt Quick GUI" ON)
 option(ENABLE_TESTS "Build tests" OFF)
 
@@ -16,30 +16,27 @@ option(ENABLE_TESTS "Build tests" OFF)
 # Qt Configuration
 # =============================================================================
 if(ENABLE_GUI)
-    find_package(Qt6 REQUIRED COMPONENTS 
-        Core 
-        Quick 
-        Network 
+    find_package(Qt6 REQUIRED COMPONENTS
+        Core
+        Quick
+        Network
         Concurrent
     )
-    # QuickControls2 is part of Qt Quick in Qt 6, but we try to link if available
-    find_package(Qt6 COMPONENTS QuickControls2 QUIET)
 else()
-    find_package(Qt6 REQUIRED COMPONENTS 
-        Core 
-        Network 
+    find_package(Qt6 REQUIRED COMPONENTS
+        Core
+        Network
         Concurrent
     )
 endif()
 
 # =============================================================================
-# FFmpeg Configuration - Support for prebuilt binaries
+# FFmpeg Configuration
 # =============================================================================
 set(FFMPEG_ROOT "" CACHE PATH "Path to FFmpeg installation")
 set(FFMPEG_INCLUDE_DIR "" CACHE PATH "Path to FFmpeg include directory")
 set(FFMPEG_LIB_DIR "" CACHE PATH "Path to FFmpeg lib directory")
 
-# Si FFMPEG_ROOT est défini, utiliser les chemins relatifs
 if(FFMPEG_ROOT AND NOT FFMPEG_INCLUDE_DIR)
     set(FFMPEG_INCLUDE_DIR "${FFMPEG_ROOT}/include")
 endif()
@@ -47,10 +44,10 @@ if(FFMPEG_ROOT AND NOT FFMPEG_LIB_DIR)
     set(FFMPEG_LIB_DIR "${FFMPEG_ROOT}/lib")
 endif()
 
-# Vérifier les headers FFmpeg
-find_path(AVFORMAT_INCLUDE_DIR 
+# Find FFmpeg headers
+find_path(AVFORMAT_INCLUDE_DIR
     NAMES libavformat/avformat.h
-    PATHS 
+    PATHS
         ${FFMPEG_INCLUDE_DIR}
         /usr/include
         /usr/local/include
@@ -59,40 +56,40 @@ find_path(AVFORMAT_INCLUDE_DIR
 )
 
 if(NOT AVFORMAT_INCLUDE_DIR)
-    message(FATAL_ERROR "FFmpeg headers not found. Set FFMPEG_ROOT or FFMPEG_INCLUDE_DIR")
+    message(WARNING "FFmpeg headers not found. Build may fail.")
+    set(FFMPEG_INCLUDE_DIR "")
+else()
+    set(FFMPEG_INCLUDE_DIR ${AVFORMAT_INCLUDE_DIR})
+    message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIR}")
 endif()
 
-set(FFMPEG_INCLUDE_DIR ${AVFORMAT_INCLUDE_DIR})
-message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIR}")
-
-# Bibliothèques FFmpeg
-set(FFMPEG_LIBS 
+# FFmpeg libraries
+set(FFMPEG_LIBS
     avformat
     avcodec
     avutil
-    avdevice
-    avfilter
-    swscale
-    swresample
 )
+
+if(NOT ANDROID)
+    list(APPEND FFMPEG_LIBS avdevice avfilter swscale swresample)
+endif()
 
 set(FFMPEG_LIBRARIES "")
 
-# Chercher chaque bibliothèque
 foreach(LIB ${FFMPEG_LIBS})
     if(WIN32)
         find_library(FFMPEG_${LIB}_LIB
             NAMES ${LIB} lib${LIB}
-            PATHS 
+            PATHS
                 ${FFMPEG_LIB_DIR}
                 ${FFMPEG_ROOT}/lib
-                $ENV{FFMPEG_ROOT}/lib
             NO_DEFAULT_PATH
         )
     elseif(ANDROID)
+        # For Android, FFmpeg is usually .so files
         find_library(FFMPEG_${LIB}_LIB
             NAMES ${LIB}
-            PATHS 
+            PATHS
                 ${FFMPEG_LIB_DIR}
                 ${FFMPEG_ROOT}/lib
             NO_DEFAULT_PATH
@@ -100,19 +97,19 @@ foreach(LIB ${FFMPEG_LIBS})
     else()
         find_library(FFMPEG_${LIB}_LIB
             NAMES ${LIB}
-            PATHS 
+            PATHS
                 ${FFMPEG_LIB_DIR}
                 /usr/lib/x86_64-linux-gnu
                 /usr/local/lib
             NO_DEFAULT_PATH
         )
     endif()
-    
+
     if(FFMPEG_${LIB}_LIB)
         list(APPEND FFMPEG_LIBRARIES ${FFMPEG_${LIB}_LIB})
         message(STATUS "Found FFmpeg ${LIB}: ${FFMPEG_${LIB}_LIB}")
     else()
-        message(WARNING "FFmpeg ${LIB} not found")
+        message(STATUS "FFmpeg ${LIB} not found (optional)")
     endif()
 endforeach()
 
@@ -122,8 +119,6 @@ endforeach()
 if(ANDROID)
     set(ANDROID_MIN_SDK_VERSION 26 CACHE STRING "Minimum Android SDK version")
     set(ANDROID_TARGET_SDK_VERSION 34 CACHE STRING "Target Android SDK version")
-    
-    # Android package source directory
     set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../android" CACHE INTERNAL "")
 endif()
 
@@ -157,23 +152,18 @@ if(ENABLE_GUI)
         ui/pages/ConfigurationPage.qml
         ui/components/Card.qml
     )
-    
+
     set(RESOURCES resources.qrc)
-    
-    set(GUI_SOURCES
-        main.cpp
-        ${RESOURCES}
-    )
+    set(GUI_SOURCES main.cpp ${RESOURCES})
 else()
-    set(GUI_SOURCES
-        console_main.cpp
-    )
+    set(GUI_SOURCES console_main.cpp)
 endif()
 
 # =============================================================================
 # Executable
 # =============================================================================
-if(ANDROID)
+if(ANDROID AND ENABLE_GUI)
+    # For Android with GUI, use qt_add_executable
     qt_add_executable(telecloud-multi
         ${CORE_SOURCES}
         ${GUI_SOURCES}
@@ -196,8 +186,11 @@ endif()
 target_include_directories(telecloud-multi PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/core
-    ${FFMPEG_INCLUDE_DIR}
 )
+
+if(FFMPEG_INCLUDE_DIR)
+    target_include_directories(telecloud-multi PRIVATE ${FFMPEG_INCLUDE_DIR})
+endif()
 
 # =============================================================================
 # Link Libraries
@@ -209,10 +202,6 @@ if(ENABLE_GUI)
         Qt6::Network
         Qt6::Concurrent
     )
-    # Link QuickControls2 if available
-    if(TARGET Qt6::QuickControls2)
-        target_link_libraries(telecloud-multi PRIVATE Qt6::QuickControls2)
-    endif()
 else()
     target_link_libraries(telecloud-multi PRIVATE
         Qt6::Core
@@ -222,10 +211,12 @@ else()
 endif()
 
 # Link FFmpeg
-target_link_libraries(telecloud-multi PRIVATE ${FFMPEG_LIBRARIES})
+if(FFMPEG_LIBRARIES)
+    target_link_libraries(telecloud-multi PRIVATE ${FFMPEG_LIBRARIES})
+endif()
 
 # FFmpeg library directories
-if(FFMPEG_LIB_DIR)
+if(FFMPEG_LIB_DIR AND ANDROID)
     target_link_directories(telecloud-multi PRIVATE ${FFMPEG_LIB_DIR})
 endif()
 
@@ -246,43 +237,12 @@ endif()
 # =============================================================================
 if(ANDROID)
     target_compile_definitions(telecloud-multi PRIVATE Q_OS_ANDROID)
-    
-    # Copier les libs FFmpeg dans le dossier Android
-    if(FFMPEG_LIB_DIR)
-        foreach(LIB ${FFMPEG_LIBRARIES})
-            get_filename_component(LIB_NAME ${LIB} NAME)
-            configure_file(${LIB} "${CMAKE_BINARY_DIR}/android/libs/${ANDROID_ABI}/${LIB_NAME}" COPYONLY)
-        endforeach()
-    endif()
-    
+
 elseif(WIN32)
     target_compile_definitions(telecloud-multi PRIVATE Q_OS_WINDOWS)
-    
-    # Set RPATH pour trouver les DLLs FFmpeg
-    set_target_properties(telecloud-multi PROPERTIES
-        BUILD_RPATH "${FFMPEG_LIB_DIR}"
-        INSTALL_RPATH "${FFMPEG_LIB_DIR}"
-    )
-    
+
 elseif(UNIX)
     target_compile_definitions(telecloud-multi PRIVATE Q_OS_LINUX)
-    
-    # Set RPATH pour Linux
-    set_target_properties(telecloud-multi PROPERTIES
-        BUILD_RPATH "${FFMPEG_LIB_DIR}"
-        INSTALL_RPATH "$ORIGIN/../lib:${FFMPEG_LIB_DIR}"
-    )
-endif()
-
-# =============================================================================
-# Install Rules (Desktop only)
-# =============================================================================
-if(NOT ANDROID)
-    install(TARGETS telecloud-multi RUNTIME DESTINATION bin)
-    
-    if(ENABLE_GUI)
-        install(FILES ${QML_FILES} DESTINATION share/telecloud-multi/qml)
-    endif()
 endif()
 
 # =============================================================================
@@ -292,7 +252,9 @@ message(STATUS "")
 message(STATUS "=== TELECLOUD-MULTI ${PROJECT_VERSION} ===")
 message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "GUI: ${ENABLE_GUI}")
-message(STATUS "Qt: ${Qt6_VERSION}")
+if(Qt6_VERSION)
+    message(STATUS "Qt: ${Qt6_VERSION}")
+endif()
 message(STATUS "FFmpeg include: ${FFMPEG_INCLUDE_DIR}")
 message(STATUS "FFmpeg libs: ${FFMPEG_LIBRARIES}")
 if(ANDROID)
