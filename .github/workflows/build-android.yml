@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - Simplified
+# TELECLOUD-MULTI Android Build - Fixed
 name: Build Android APK
 
 on:
@@ -39,32 +39,21 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
 
-      - name: Cache Qt
-        uses: actions/cache@v4
-        id: cache-qt
-        with:
-          path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-v11
-
       - name: Install aqtinstall
         run: pip install aqtinstall
 
       - name: Install Qt for Desktop
-        if: steps.cache-qt.outputs.cache-hit != 'true'
-        run: |
-          python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
+        run: python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
 
       - name: Install Qt for Android
-        if: steps.cache-qt.outputs.cache-hit != 'true'
-        run: |
-          python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
+        run: python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
 
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v11
+          key: ffmpeg-android-arm64-v12
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -93,37 +82,26 @@ jobs:
             printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
           fi
 
-      - name: Setup Environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-          
-          QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
-          QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
-          
-          echo "QT_ANDROID_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
-          echo "QT_HOST_PATH=$QT_HOST_PATH" >> $GITHUB_ENV
-          echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
-          
-          echo "CMAKE_PREFIX_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
-          
-          echo "$QT_ANDROID_PATH/bin" >> $GITHUB_PATH
-          echo "$QT_HOST_PATH/bin" >> $GITHUB_PATH
-
       - name: Configure CMake (Console)
         run: |
           mkdir build && cd build
           
+          QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
+          QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
+          
+          echo "QT_ANDROID_PATH=$QT_ANDROID_PATH"
+          echo "QT_HOST_PATH=$QT_HOST_PATH"
+          ls -la $QT_ANDROID_PATH/lib/cmake/Qt6/ | head -5
+          
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
             -DCMAKE_PREFIX_PATH=$QT_ANDROID_PATH \
             -DQT_HOST_PATH=$QT_HOST_PATH \
-            -DFFMPEG_ROOT=$FFMPEG_ROOT \
+            -DFFMPEG_ROOT=/home/runner/ffmpeg-android \
             -DENABLE_GUI=OFF
 
       - name: Build
