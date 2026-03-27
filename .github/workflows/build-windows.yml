@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Windows Build - FIXED
+# TELECLOUD-MULTI Windows Build - FIXED v2
 name: Build Windows EXE
 
 on:
@@ -22,46 +22,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Cache Qt
       - name: Cache Qt
         uses: actions/cache@v4
         id: cache-qt
         with:
           path: C:\Qt
-          key: qt-${{ env.QT_VERSION }}-win64-v5
+          key: qt-${{ env.QT_VERSION }}-win64-v6
 
       - name: Install Qt
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
           pip install aqtinstall
+          python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2019_64 --outputdir C:\Qt\Qt
 
-          # Install Qt for Windows
-          python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc2019_64 `
-            --outputdir C:\Qt\Qt
-
-      # Cache FFmpeg
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: C:\ffmpeg
-          key: ffmpeg-win64-gpl-shared-v6
+          key: ffmpeg-win64-gpl-shared-v7
 
       - name: Download FFmpeg
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
-          mkdir C:\ffmpeg
+          mkdir C:\ffmpeg -Force
           cd C:\ffmpeg
-
-          # Download FFmpeg shared build
           Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip" -OutFile ffmpeg.zip
-
           if (Test-Path ffmpeg.zip) {
             Expand-Archive -Path ffmpeg.zip -DestinationPath . -Force
-
-            # Find the extracted folder
             $extracted = Get-ChildItem -Directory -Filter "ffmpeg*" | Select-Object -First 1
-
             if ($extracted) {
               Move-Item "$($extracted.Name)\bin" bin -Force
               Move-Item "$($extracted.Name)\lib" lib -Force
@@ -69,101 +58,76 @@ jobs:
               Remove-Item $extracted.FullName -Recurse -Force
             }
           }
-
           Remove-Item ffmpeg.zip -Force -ErrorAction SilentlyContinue
 
-      # Setup MSVC
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      # Configure
       - name: Configure CMake
-        id: configure
         run: |
           mkdir build -Force
           cd build
-
           $QT_PATH = "C:\Qt\Qt\${{ env.QT_VERSION }}\msvc2019_64"
-
           if (-not (Test-Path $QT_PATH)) {
-            Write-Host "Qt not found at $QT_PATH"
-            Write-Host "Searching for Qt installation..."
             $QT_PATH = (Get-ChildItem -Path "C:\Qt" -Filter "msvc2019_64" -Directory -Recurse | Select-Object -First 1).FullName
           }
-
           Write-Host "Using Qt at: $QT_PATH"
+          cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QT_PATH" -DFFMPEG_ROOT="C:\ffmpeg" -DENABLE_GUI=ON
 
-          cmake .. `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_PREFIX_PATH="$QT_PATH" `
-            -DFFMPEG_ROOT="C:\ffmpeg" `
-            -DENABLE_GUI=ON
-
-      # Build
       - name: Build
         id: build
         run: |
           cd build
           cmake --build . --config Release --parallel $env:NUMBER_OF_PROCESSORS
-
-          # Check if build succeeded
-          if (Test-Path "Release\telecloud-multi.exe") {
-            Write-Host "Build successful!"
+          
+          # The exe is in build\src\Release\ because of add_subdirectory(src)
+          $exePath = "src\Release\telecloud-multi.exe"
+          if (Test-Path $exePath) {
+            Write-Host "Build successful! EXE at: $exePath"
+            Copy-Item $exePath "Release\" -Force
+            Copy-Item "src\Release\*.dll" "Release\" -Force -ErrorAction SilentlyContinue
             echo "build_success=true" >> $env:GITHUB_OUTPUT
           } else {
-            Write-Host "Build output not found"
+            Write-Host "Build output not found at $exePath"
             echo "build_success=false" >> $env:GITHUB_OUTPUT
           }
 
-      # Deploy Qt dependencies (only if build succeeded)
       - name: Deploy Qt Dependencies
         if: steps.build.outputs.build_success == 'true'
         run: |
           cd build\Release
-
+          
           # Copy FFmpeg DLLs
           if (Test-Path "C:\ffmpeg\bin") {
             Copy-Item "C:\ffmpeg\bin\*.dll" . -Force
           }
-
+          
           # Find and run windeployqt
           $QT_PATH = "C:\Qt\Qt\${{ env.QT_VERSION }}\msvc2019_64"
           $DEPLOYQT = Join-Path $QT_PATH "bin\windeployqt.exe"
-
           if (-not (Test-Path $DEPLOYQT)) {
             $DEPLOYQT = (Get-ChildItem -Path "C:\Qt" -Filter "windeployqt.exe" -File -Recurse | Select-Object -First 1).FullName
           }
-
           if (Test-Path $DEPLOYQT) {
             Write-Host "Running windeployqt from: $DEPLOYQT"
             & "$DEPLOYQT" --release --no-translations --no-system-d3d-compiler telecloud-multi.exe
-          } else {
-            Write-Host "windeployqt not found, skipping deployment"
           }
 
-      # Create package
       - name: Create Package
         if: steps.build.outputs.build_success == 'true'
         run: |
           mkdir dist -Force
-
-          if (Test-Path "build\Release\telecloud-multi.exe") {
-            Copy-Item "build\Release\telecloud-multi.exe" dist\
-            Copy-Item "build\Release\*.dll" dist\ -ErrorAction SilentlyContinue
-          }
-
+          Copy-Item "build\Release\telecloud-multi.exe" dist\ -Force
+          Copy-Item "build\Release\*.dll" dist\ -Force -ErrorAction SilentlyContinue
           Copy-Item "Icon.png" dist\ -ErrorAction SilentlyContinue
           Copy-Item "README.md" dist\ -ErrorAction SilentlyContinue
-
+          
           if (Test-Path "dist\telecloud-multi.exe") {
             Compress-Archive -Path dist\* -DestinationPath telecloud-multi-windows-x64.zip -Force
-            Write-Host "Package created successfully"
-          } else {
-            Write-Host "No executable to package"
+            Write-Host "Package created: telecloud-multi-windows-x64.zip"
+            Get-ChildItem dist
           }
 
       - name: Upload Artifact
@@ -173,18 +137,13 @@ jobs:
           name: windows-x64
           path: telecloud-multi-windows-x64.zip
           retention-days: 30
-          if-no-files-found: ignore
 
-      # Upload build logs on failure
       - name: Upload Build Logs on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-build-logs
-          path: |
-            build/CMakeCache.txt
-            build/CMakeFiles/CMakeOutput.log
-            build/CMakeFiles/CMakeError.log
+          path: build/CMakeCache.txt
           retention-days: 7
           if-no-files-found: ignore
 
