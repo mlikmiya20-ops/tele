@@ -1,0 +1,13 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>Icon.png</file>
+        
+        <!-- QML UI Files -->
+        <file>ui/main.qml</file>
+        <file>ui/styles/Theme.qml</file>
+        <file>ui/pages/DashboardPage.qml</file>
+        <file>ui/pages/ConfigurationPage.qml</file>
+        <file>ui/components/Card.qml</file>
+    </qresource>
+</RCC>

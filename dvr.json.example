@@ -1,0 +1,147 @@
+{
+  "version": "1.00",
+  "lastSaved": "2025-01-01T00:00:00Z",
+  
+  "appConfig": {
+    "fps": 12,
+    "segmentDurationMinutes": 60,
+    "storageDirectory": "/storage/emulated/0/Movies/TELECLOUD",
+    "autoStartRecording": false,
+    "minimizeToTray": true,
+    "maxConcurrentRecordings": 64
+  },
+  
+  "dvrs": [
+    {
+      "id": "dvr-example01",
+      "name": "Main Security DVR",
+      "ipAddress": "192.168.1.100",
+      "port": 554,
+      "brand": 1,
+      "username": "admin",
+      "password": "",
+      "passwordEncrypted": false,
+      "saveCredentials": false,
+      "channelCount": 8,
+      
+      "cameras": [
+        {
+          "cameraNumber": 1,
+          "rtspUrl": "rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101",
+          "enabled": true,
+          "detectedVideoCodec": 2,
+          "detectedAudioCodec": 1,
+          "containerFormat": "mp4",
+          "width": 1920,
+          "height": 1080,
+          "frameRate": 25.0,
+          "bitRate": 4096000
+        },
+        {
+          "cameraNumber": 2,
+          "rtspUrl": "rtsp://admin:password@192.168.1.100:554/Streaming/Channels/201",
+          "enabled": true,
+          "detectedVideoCodec": 2,
+          "detectedAudioCodec": 1,
+          "containerFormat": "mp4",
+          "width": 1920,
+          "height": 1080,
+          "frameRate": 25.0,
+          "bitRate": 4096000
+        },
+        {
+          "cameraNumber": 3,
+          "rtspUrl": "rtsp://admin:password@192.168.1.100:554/Streaming/Channels/301",
+          "enabled": false,
+          "detectedVideoCodec": 1,
+          "detectedAudioCodec": 0,
+          "containerFormat": "mp4",
+          "width": 1280,
+          "height": 720,
+          "frameRate": 15.0,
+          "bitRate": 2048000
+        }
+      ]
+    },
+    {
+      "id": "dvr-example02",
+      "name": "Secondary DVR (Dahua)",
+      "ipAddress": "192.168.1.101",
+      "port": 554,
+      "brand": 2,
+      "username": "admin",
+      "password": "",
+      "passwordEncrypted": false,
+      "saveCredentials": false,
+      "channelCount": 4,
+      
+      "cameras": [
+        {
+          "cameraNumber": 1,
+          "rtspUrl": "rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0",
+          "enabled": true,
+          "detectedVideoCodec": 3,
+          "detectedAudioCodec": 3,
+          "containerFormat": "ts",
+          "width": 2560,
+          "height": 1440,
+          "frameRate": 30.0,
+          "bitRate": 8192000
+        }
+      ]
+    }
+  ],
+  
+  "_documentation": {
+    "videoCodecValues": {
+      "0": "Unknown",
+      "1": "H.264",
+      "2": "H.265",
+      "3": "H.265+",
+      "4": "H.266",
+      "5": "MJPEG",
+      "6": "MPEG-4",
+      "7": "VP8",
+      "8": "VP9"
+    },
+    "audioCodecValues": {
+      "0": "Unknown",
+      "1": "AAC",
+      "2": "PCM",
+      "3": "G.711 A-law",
+      "4": "G.711 μ-law",
+      "5": "G.726",
+      "6": "MP3",
+      "7": "Opus"
+    },
+    "brandValues": {
+      "0": "Unknown",
+      "1": "Hikvision",
+      "2": "Dahua",
+      "3": "Axis",
+      "4": "Bosch",
+      "5": "Reolink",
+      "6": "TP-Link/Tapo",
+      "7": "Uniview",
+      "8": "Sony",
+      "9": "Samsung",
+      "10": "Panasonic",
+      "11": "Vivotek",
+      "12": "Honeywell",
+      "13": "Hanwha",
+      "14": "Generic DVR"
+    },
+    "rtspUrlPatterns": {
+      "Hikvision": "rtsp://user:pass@IP:554/Streaming/Channels/{channel}01",
+      "Dahua": "rtsp://user:pass@IP:554/cam/realmonitor?channel={channel}&subtype=0",
+      "Axis": "rtsp://user:pass@IP:554/axis-media/media.amp?camera={channel}",
+      "Bosch": "rtsp://user:pass@IP:554/video?inst={channel}",
+      "Reolink": "rtsp://user:pass@IP:554/h264Preview{channel}_main",
+      "TP-Link/Tapo": "rtsp://user:pass@IP:554/stream{channel}",
+      "Uniview": "rtsp://user:pass@IP:554/video{channel}",
+      "Generic": "rtsp://user:pass@IP:554/ch{channel}"
+    },
+    "fileNameFormat": "cam{number}_{DD}_{MM}_{YY}h{HH}h{MM}m{SS}s.{extension}",
+    "example": "cam1_06_02_26_10h02m00s.mp4"
+  }
+}

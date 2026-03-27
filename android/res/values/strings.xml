@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TELECLOUD-MULTI</string>
+    
+    <!-- Qt Ministro messages -->
+    <string name="ministro_not_found_msg">Ministro service not found.\nApplication cannot start.</string>
+    <string name="ministro_needed_msg">This application requires Ministro service. Would you like to install it?</string>
+    <string name="fatal_error_msg">Application fatal error.\nApplication cannot start.</string>
+    
+    <!-- App-specific strings -->
+    <string name="recording_notification_title">TELECLOUD Recording</string>
+    <string name="recording_notification_message">Recording %1$d cameras</string>
+    <string name="recording_notification_channel">recording</string>
+    
+    <!-- Permissions -->
+    <string name="permission_storage_title">Storage Permission Required</string>
+    <string name="permission_storage_message">TELECLOUD-MULTI needs storage permission to save video recordings.</string>
+    
+    <string name="permission_camera_title">Camera Permission Required</string>
+    <string name="permission_camera_message">TELECLOUD-MULTI needs camera permission for preview functionality.</string>
+    
+    <!-- Notifications -->
+    <string name="notification_channel_recording">Recording Notifications</string>
+    <string name="notification_channel_recording_desc">Notifications for active recordings</string>
+    
+    <string name="notification_channel_errors">Error Notifications</string>
+    <string name="notification_channel_errors_desc">Critical error notifications</string>
+</resources>

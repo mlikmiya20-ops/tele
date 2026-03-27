@@ -1,0 +1,156 @@
+# TELECLOUD-MULTI Android Build - OPTIMIZED
+# Fast build with aggressive caching
+
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.6.3'
+  NDK_VERSION: '25.2.9519653'
+  SDK_BUILD_TOOLS: '34.0.0'
+  SDK_PLATFORM: 'android-34'
+
+jobs:
+  build-android:
+    name: Build ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      # Cache Android SDK
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        id: cache-android
+        with:
+          path: |
+            ~/android-sdk
+            ~/.android
+          key: android-sdk-${{ env.NDK_VERSION }}-${{ env.SDK_BUILD_TOOLS }}-v2
+      
+      - name: Setup Android SDK
+        if: steps.cache-android.outputs.cache-hit != 'true'
+        uses: android-actions/setup-android@v3
+      
+      - name: Install Android Components
+        if: steps.cache-android.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
+      
+      # Cache Qt
+      - name: Cache Qt
+        uses: actions/cache@v4
+        id: cache-qt
+        with:
+          path: ~/Qt
+          key: qt-${{ env.QT_VERSION }}-android-${{ matrix.abi }}-v3
+      
+      - name: Install Qt
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: android
+          arch: android_${{ matrix.abi }}
+          dir: ~/Qt
+          modules: 'qtbase qtdeclarative qtshadertools'
+          cache: true
+      
+      # Cache FFmpeg
+      - name: Cache FFmpeg
+        uses: actions/cache@v4
+        id: cache-ffmpeg
+        with:
+          path: ~/ffmpeg-android
+          key: ffmpeg-android-${{ matrix.abi }}-v3
+      
+      - name: Download FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/ffmpeg-android
+          cd ~/ffmpeg-android
+          
+          # Use prebuilt FFmpeg from ffmpeg-kit releases
+          ARCH="arm64"
+          wget -q "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-${ARCH}.zip" -O ffmpeg.zip
+          unzip -q ffmpeg.zip
+          rm ffmpeg.zip
+          
+          # Setup structure
+          mkdir -p lib include
+          cp -r ffmpeg-kit-full-${ARCH}/lib/* lib/ 2>/dev/null || true
+          cp -r ffmpeg-kit-full-${ARCH}/include/* include/ 2>/dev/null || true
+      
+      # Setup environment
+      - name: Setup Environment
+        run: |
+          echo "ANDROID_HOME=~/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=~/android-sdk/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "Qt6_DIR=~/Qt/${{ env.QT_VERSION }}/android_${{ matrix.abi }}/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "FFMPEG_ROOT=~/ffmpeg-android" >> $GITHUB_ENV
+      
+      # Configure
+      - name: Configure CMake
+        run: |
+          mkdir build && cd build
+          
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-26 \
+            -DANDROID_STL=c++_shared \
+            -DQt6_DIR=$Qt6_DIR \
+            -DFFMPEG_ROOT=$FFMPEG_ROOT
+      
+      # Build
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(nproc)
+      
+      # Upload artifact
+      - name: Upload Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.abi }}
+          path: build/*.apk
+          retention-days: 30
+          if-no-files-found: ignore
+
+  release:
+    name: Create Release
+    needs: build-android
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: android-*
+          path: artifacts
+          merge-multiple: true
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

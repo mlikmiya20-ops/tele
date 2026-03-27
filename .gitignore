@@ -1,0 +1,84 @@
+# TELECLOUD-MULTI .gitignore
+
+# Build directories
+build/
+build-*/
+cmake-build-*/
+out/
+
+# IDE files
+.vscode/
+.idea/
+*.pro.user
+*.pro.user.*
+*.autosave
+CMakeLists.txt.user
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Qt generated files
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.qm
+
+# Android
+android-build/
+android/.gradle/
+android/build/
+android/local.properties
+android/*.iml
+*.apk
+*.aab
+
+# Windows
+*.vcxproj
+*.vcxproj.*
+*.sln
+*.suo
+*.user
+*.sdf
+*.opensdf
+*.pdb
+ipch/
+
+# macOS
+.DS_Store
+*.app
+*.dmg
+
+# Configuration files with sensitive data
+dvr.json
+error.json
+
+# FFmpeg libraries (download separately)
+android/libs/
+windows/*.dll
+ffmpeg-*/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Dependencies
+node_modules/
+
+# Distribution
+dist/
+*.zip
+*.tar.gz

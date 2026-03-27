@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- External storage paths for video recordings -->
+    <external-path name="external_files" path="." />
+    <external-files-path name="external_app_files" path="." />
+    
+    <!-- Movies directory for recordings -->
+    <external-path name="movies" path="Movies/TELECLOUD" />
+    <external-files-path name="app_movies" path="Movies" />
+    
+    <!-- DCIM directory (alternative location) -->
+    <external-path name="dcim" path="DCIM/TELECLOUD" />
+    
+    <!-- Internal app storage -->
+    <files-path name="internal_files" path="." />
+    <cache-path name="cache" path="." />
+    
+    <!-- For Android 11+ scoped storage -->
+    <external-media-path name="media_files" path="." />
+</paths>

@@ -1,0 +1,146 @@
+// TELECLOUD-MULTI Android Build Configuration
+// Supports Android 8.0 (API 26) to Android 16.0 (API 35+)
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.2.0'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.telecloud.multi'
+    
+    compileSdk 35
+    
+    defaultConfig {
+        applicationId "com.telecloud.multi"
+        minSdk 26          // Android 8.0 Oreo
+        targetSdk 35       // Android 15/16
+        versionCode 100
+        versionName "1.00"
+        
+        // Multi-ABI support
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+            // x86 and x86_64 for emulators
+            // abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+        }
+        
+        // External native build configuration
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared'
+                cppFlags "-std=c++17"
+            }
+        }
+    }
+    
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            // Signing configuration (set in local.properties or CI)
+            // signingConfig signingConfigs.release
+        }
+        
+        debug {
+            debuggable true
+            jniDebuggable true
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
+    ndkVersion "25.2.9519653" // Qt 6 recommended NDK version
+    
+    // Source sets
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+    
+    // Lint options
+    lint {
+        abortOnError false
+        checkReleaseBuilds true
+        disable 'MissingTranslation'
+    }
+    
+    // Packaging options
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE', 'META-INF/LICENSE.txt', 'META-INF/NOTICE', 'META-INF/NOTICE.txt']
+        }
+    }
+}
+
+// FFmpeg native libraries
+// Pre-built FFmpeg libraries should be placed in android/libs/{ABI}/
+// Download from: https://github.com/ArthMOz/ffmpeg-android-builder or build from source
+
+dependencies {
+    // AndroidX core
+    implementation 'androidx.core:core:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    
+    // Material Design
+    implementation 'com.google.android.material:material:1.11.0'
+    
+    // Work Manager for background tasks
+    implementation 'androidx.work:work-runtime:2.9.0'
+    
+    // ConstraintLayout
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+}
+
+// Task to copy FFmpeg libraries
+task copyFFmpegLibs(type: Copy) {
+    description 'Copy FFmpeg native libraries to libs directory'
+    
+    // This task assumes FFmpeg libraries are built and available
+    // Modify paths according to your FFmpeg build location
+    
+    from fileTree(dir: '../ffmpeg-android/build', include: ['**/*.so'])
+    into 'libs'
+    
+    doFirst {
+        println "Copying FFmpeg libraries..."
+        file('libs').mkdirs()
+    }
+}
+
+// Pre-build task
+preBuild.dependsOn copyFFmpegLibs
+
+// Task to clean native libraries
+task cleanNativeLibs(type: Delete) {
+    delete 'libs'
+}
+
+clean.dependsOn cleanNativeLibs
