@@ -4,7 +4,7 @@
  * @author TELECLOUD-MULTI Team
  * @version 1.00
  * @date 2025
- * 
+ *
  * This file initializes the Qt application, sets up the QML engine,
  * registers C++ types for QML, and handles platform-specific setup.
  */
@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QDebug>
+#include <QMessageBox>
 
 #ifdef Q_OS_ANDROID
 #include <QtAndroid>
@@ -43,12 +44,12 @@ QString getAppDataDir() {
 #else
     QString path = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
 #endif
-    
+
     QDir dir(path);
     if (!dir.exists()) {
         dir.mkpath(".");
     }
-    
+
     return path;
 }
 
@@ -60,21 +61,21 @@ QString getAppDataDir() {
 bool initAndroidPermissions() {
     // Required permissions for Android 8.0 to 16.0
     QStringList permissions;
-    
+
     // Network permissions
     permissions << "android.permission.INTERNET";
     permissions << "android.permission.ACCESS_NETWORK_STATE";
     permissions << "android.permission.ACCESS_WIFI_STATE";
-    
+
     // Storage permissions
     // For Android < 10 (API 29)
     permissions << "android.permission.WRITE_EXTERNAL_STORAGE";
     permissions << "android.permission.READ_EXTERNAL_STORAGE";
-    
+
     // Camera and audio (for future features)
     permissions << "android.permission.CAMERA";
     permissions << "android.permission.RECORD_AUDIO";
-    
+
     // Request permissions
     for (const QString& permission : permissions) {
         auto result = QtAndroid::requestPermissionsSync(QStringList() << permission);
@@ -82,18 +83,18 @@ bool initAndroidPermissions() {
             qWarning() << "Permission not granted:" << permission;
         }
     }
-    
+
     // For Android 11+ (API 30+), request MANAGE_EXTERNAL_STORAGE for scoped storage
     if (QtAndroid::androidSdkVersion() >= 30) {
         QAndroidJniEnvironment env;
         QAndroidJniObject activity = QtAndroid::androidActivity();
         QAndroidJniObject uri = QAndroidJniObject::callStaticObjectMethod(
-            "android/net/Uri", 
-            "parse", 
+            "android/net/Uri",
+            "parse",
             "(Ljava/lang/String;)Landroid/net/Uri;",
             QAndroidJniObject::fromString("package:com.telecloud.multi").object<jstring>()
         );
-        
+
         QAndroidJniObject intent = QAndroidJniObject::callStaticObjectMethod(
             "android/content/Intent",
             "parseUri",
@@ -103,10 +104,10 @@ bool initAndroidPermissions() {
             ).object<jstring>(),
             0
         );
-        
+
         activity.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object<jobject>());
     }
-    
+
     return true;
 }
 #endif
@@ -117,16 +118,11 @@ bool initAndroidPermissions() {
 void initFFmpeg() {
     // Initialize FFmpeg network
     avformat_network_init();
-    
-    // Set FFmpeg log level
-#ifdef QT_DEBUG
-    av_log_set_level(AV_LOG_DEBUG);
-#else
-    av_log_set_level(AV_LOG_WARNING);
-#endif
-    
-    qDebug() << "FFmpeg initialized";
-    qDebug() << "FFmpeg configuration:" << avcodec_configuration();
+
+    // Set FFmpeg log level - suppress verbose output
+    av_log_set_level(AV_LOG_ERROR);
+
+    qDebug() << "FFmpeg initialized successfully";
 }
 
 /**
@@ -139,37 +135,37 @@ int main(int argc, char *argv[])
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 #endif
-    
+
     QGuiApplication app(argc, argv);
     app.setApplicationName("TELECLOUD-MULTI");
     app.setApplicationVersion("1.00");
     app.setOrganizationName("TeleCloud");
-    
+
     // Set application icon
     app.setWindowIcon(QIcon(":/Icon.png"));
-    
+
     // Initialize FFmpeg
     initFFmpeg();
-    
+
 #ifdef Q_OS_ANDROID
     // Initialize Android permissions
     initAndroidPermissions();
 #endif
-    
+
     // Initialize error logger
     QString dataDir = getAppDataDir();
     ErrorLogger::instance().setLogFilePath(dataDir + "/error.json");
     ErrorLogger::instance().logInfo("APP001", "Application starting");
-    
+
     // Initialize managers
     DVRManager dvrManager;
     dvrManager.loadConfiguration();
-    
+
     NetworkScanner networkScanner;
     Recorder recorder;
     recorder.setStorageDirectory(dvrManager.appConfig().storageDirectory);
     recorder.setSegmentDuration(dvrManager.appConfig().segmentDurationMinutes);
-    
+
     // Register QML types
     qRegisterMetaType<DVRInfo>("DVRInfo");
     qRegisterMetaType<StreamInfo>("StreamInfo");
@@ -177,55 +173,62 @@ int main(int argc, char *argv[])
     qRegisterMetaType<RecordingConfig>("RecordingConfig");
     qRegisterMetaType<RecordingStats>("RecordingStats");
     qRegisterMetaType<QMap<int, RecordingStats>>("QMap<int,RecordingStats>");
-    
+
     // Create QML engine
     QQmlApplicationEngine engine;
-    
+
     // Expose C++ objects to QML
     QQmlContext* context = engine.rootContext();
-    
+
     // Singletons/Managers
     context->setContextProperty("DVRManager", &dvrManager);
     context->setContextProperty("NetworkScanner", &networkScanner);
     context->setContextProperty("Recorder", &recorder);
-    
+
     // Expose utility functions
     context->setContextProperty("AppVersion", "1.00");
     context->setContextProperty("AppDataDir", dataDir);
-    
+
     // Load main QML file
     const QUrl url(u"qrc:/ui/main.qml"_qs);
-    
+
+    // Connect object creation handler
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &app, [url](QObject *obj, const QUrl &objUrl) {
         if (!obj && url == objUrl) {
+            qCritical() << "Failed to load QML file:" << url;
             QCoreApplication::exit(-1);
+        } else if (obj) {
+            qDebug() << "QML loaded successfully";
         }
     }, Qt::QueuedConnection);
-    
+
+    // Load QML
     engine.load(url);
-    
+
     // Check if QML loaded successfully
     if (engine.rootObjects().isEmpty()) {
+        qCritical() << "No root objects found - QML loading failed";
         ErrorLogger::instance().logCritical("APP002", "Failed to load QML interface");
         return -1;
     }
-    
+
+    qDebug() << "Application GUI initialized";
     ErrorLogger::instance().logInfo("APP003", "Application started successfully");
-    
+
     // Connect configuration changes
     QObject::connect(&dvrManager, &DVRManager::appConfigChanged, [&]() {
         auto config = dvrManager.appConfig();
         recorder.setStorageDirectory(config.storageDirectory);
         recorder.setSegmentDuration(config.segmentDurationMinutes);
     });
-    
+
     // Run application
     int result = app.exec();
-    
+
     // Cleanup
     ErrorLogger::instance().logInfo("APP004", "Application shutting down");
     recorder.stopAll();
-    
+
     return result;
 }

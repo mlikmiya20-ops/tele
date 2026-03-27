@@ -145,14 +145,7 @@ set(CORE_SOURCES
 )
 
 if(ENABLE_GUI)
-    set(QML_FILES
-        ui/main.qml
-        ui/styles/Theme.qml
-        ui/pages/DashboardPage.qml
-        ui/pages/ConfigurationPage.qml
-        ui/components/Card.qml
-    )
-
+    # QML is embedded in resources.qrc
     set(RESOURCES resources.qrc)
     set(GUI_SOURCES main.cpp ${RESOURCES})
 else()
