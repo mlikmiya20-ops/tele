@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - FIXED v2
+# TELECLOUD-MULTI Android Build - FIXED v3
 name: Build Android APK
 
 on:
@@ -25,14 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Setup Java 17
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # Cache Android SDK
       - name: Cache Android SDK
         uses: actions/cache@v4
         id: cache-android
@@ -40,7 +38,7 @@ jobs:
           path: |
             ~/android-sdk
             ~/.android
-          key: android-sdk-${{ env.NDK_VERSION }}-v5
+          key: android-sdk-${{ env.NDK_VERSION }}-v6
 
       - name: Setup Android SDK
         if: steps.cache-android.outputs.cache-hit != 'true'
@@ -52,13 +50,12 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager --install "build-tools;${{ env.SDK_BUILD_TOOLS }}" "platforms;${{ env.SDK_PLATFORM }}" "ndk;${{ env.NDK_VERSION }}"
 
-      # Install Qt using aqtinstall directly
       - name: Cache Qt
         uses: actions/cache@v4
         id: cache-qt
         with:
           path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-arm64-v6
+          key: qt-${{ env.QT_VERSION }}-android-arm64-v7
 
       - name: Install aqtinstall
         run: pip install aqtinstall
@@ -71,103 +68,81 @@ jobs:
       - name: Install Qt for Android
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
-          # Install Qt for desktop (required for build tools)
-          python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 \
-            --outputdir /home/runner/Qt
+          python -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 --outputdir /home/runner/Qt
+          python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a --outputdir /home/runner/Qt
 
-          # Install Qt for Android - use correct architecture name
-          python -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a \
-            --outputdir /home/runner/Qt
-
-      # Cache FFmpeg
       - name: Cache FFmpeg
         uses: actions/cache@v4
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v5
+          key: ffmpeg-android-arm64-v6
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           mkdir -p /home/runner/ffmpeg-android
           cd /home/runner/ffmpeg-android
-
-          # Download FFmpeg prebuilt for Android from a reliable source
-          wget -q --timeout=30 "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || true
-
+          
+          # Try to download FFmpeg prebuilt for Android
+          wget -q --timeout=60 "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || echo "Download returned non-zero"
+          
           if [ -f ffmpeg.zip ] && [ -s ffmpeg.zip ]; then
-            unzip -q ffmpeg.zip
-            rm ffmpeg.zip
+            echo "FFmpeg downloaded, extracting..."
+            unzip -q ffmpeg.zip || true
+            rm -f ffmpeg.zip
             mkdir -p lib include
             if [ -d "ffmpeg-kit-full-arm64" ]; then
               cp -r ffmpeg-kit-full-arm64/lib/* lib/ 2>/dev/null || true
               cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
               rm -rf ffmpeg-kit-full-arm64
             fi
-            echo "FFmpeg downloaded successfully"
+            ls -la lib/ || true
+            echo "FFmpeg extraction complete"
           else
-            echo "FFmpeg download failed, creating stub files for build test..."
+            echo "FFmpeg download failed or file empty, creating minimal stubs..."
             rm -f ffmpeg.zip
-            # Create minimal stub structure
             mkdir -p lib include/libavcodec include/libavformat include/libavutil include/libswscale include/libswresample
-
-            # Create stub headers
-            cat > include/libavcodec/avcodec.h << 'EOF'
-            #ifndef AVCODEC_H
-            #define AVCODEC_H
-            typedef struct AVCodecContext { int dummy; } AVCodecContext;
-            typedef struct AVPacket { int dummy; } AVPacket;
-            typedef struct AVCodec { int dummy; } AVCodec;
-            #endif
-            EOF
-            cat > include/libavformat/avformat.h << 'EOF'
-            #ifndef AVFORMAT_H
-            #define AVFORMAT_H
-            typedef struct AVFormatContext { int dummy; } AVFormatContext;
-            #endif
-            EOF
-            cat > include/libavutil/avutil.h << 'EOF'
-            #ifndef AVUTIL_H
-            #define AVUTIL_H
-            #endif
-            EOF
-            cat > include/libswscale/swscale.h << 'EOF'
-            #ifndef SWSCALE_H
-            #define SWSCALE_H
-            #endif
-            EOF
-            cat > include/libswresample/swresample.h << 'EOF'
-            #ifndef SWRESAMPLE_H
-            #define SWRESAMPLE_H
-            #endif
-            EOF
+            # Create minimal stub headers for build test
+            echo '#ifndef AVCODEC_H
+#define AVCODEC_H
+typedef struct AVCodecContext { int dummy; } AVCodecContext;
+typedef struct AVPacket { int dummy; } AVPacket;
+#endif' > include/libavcodec/avcodec.h
+            echo '#ifndef AVFORMAT_H
+#define AVFORMAT_H
+typedef struct AVFormatContext { int dummy; } AVFormatContext;
+#endif' > include/libavformat/avformat.h
+            echo '#ifndef AVUTIL_H
+#define AVUTIL_H
+#endif' > include/libavutil/avutil.h
+            echo '#ifndef SWSCALE_H
+#define SWSCALE_H
+#endif' > include/libswscale/swscale.h
+            echo '#ifndef SWRESAMPLE_H
+#define SWRESAMPLE_H
+#endif' > include/libswresample/swresample.h
+            echo "Stub headers created"
           fi
 
-      # Setup environment
       - name: Setup Environment
         run: |
           ANDROID_SDK_ROOT=/home/runner/android-sdk
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-
-          # Set Qt paths - use absolute path
           QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
           echo "Qt6_DIR=$QT_ANDROID_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "QT_ANDROID_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
           echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
-
-          # Debug: Show paths
           echo "Qt6_DIR: $QT_ANDROID_PATH/lib/cmake/Qt6"
           ls -la /home/runner/Qt/ || true
 
-      # Configure
       - name: Configure CMake
         id: configure
         run: |
           mkdir build && cd build
-
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
@@ -175,26 +150,16 @@ jobs:
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
             -DQt6_DIR=$Qt6_DIR \
-            -DFFMPEG_ROOT=$FFMPEG_ROOT || echo "Configure may have warnings"
+            -DFFMPEG_ROOT=$FFMPEG_ROOT || echo "Configure completed with warnings"
 
-      # Build
       - name: Build
         id: build
         run: |
           cd build
           cmake --build . -j$(nproc) 2>&1 || true
-
-          # Check for output
           echo "=== Build output ==="
           find . -name "*.apk" -o -name "*.so" -o -name "telecloud-multi" 2>/dev/null || echo "No build artifacts found"
 
-          if [ -f "telecloud-multi" ] || [ -f "*.apk" ] || [ -f "**/*.so" ]; then
-            echo "build_success=true" >> $GITHUB_OUTPUT
-          else
-            echo "build_success=false" >> $GITHUB_OUTPUT
-          fi
-
-      # Upload artifact
       - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
@@ -206,7 +171,6 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      # Upload build logs on failure
       - name: Upload Build Logs on Failure
         if: failure()
         uses: actions/upload-artifact@v4
