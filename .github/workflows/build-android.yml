@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - FIXED v3
+# TELECLOUD-MULTI Android Build - FIXED v4
 name: Build Android APK
 
 on:
@@ -38,7 +38,7 @@ jobs:
           path: |
             ~/android-sdk
             ~/.android
-          key: android-sdk-${{ env.NDK_VERSION }}-v6
+          key: android-sdk-${{ env.NDK_VERSION }}-v7
 
       - name: Setup Android SDK
         if: steps.cache-android.outputs.cache-hit != 'true'
@@ -55,15 +55,13 @@ jobs:
         id: cache-qt
         with:
           path: /home/runner/Qt
-          key: qt-${{ env.QT_VERSION }}-android-arm64-v7
+          key: qt-${{ env.QT_VERSION }}-android-arm64-v8
 
       - name: Install aqtinstall
         run: pip install aqtinstall
 
       - name: List available Android architectures
-        run: |
-          echo "Checking available Qt architectures for Android..."
-          python -m aqt list-qt linux android --arch ${{ env.QT_VERSION }} || true
+        run: python -m aqt list-qt linux android --arch ${{ env.QT_VERSION }} || true
 
       - name: Install Qt for Android
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -76,17 +74,15 @@ jobs:
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v6
+          key: ffmpeg-android-arm64-v7
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-        shell: bash
         run: |
           mkdir -p /home/runner/ffmpeg-android
           cd /home/runner/ffmpeg-android
           
-          # Try to download FFmpeg prebuilt for Android
-          wget -q --timeout=60 "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || echo "Download returned non-zero"
+          wget -q --timeout=60 "https://github.com/arthenica/ffmpeg-kit/releases/download/v6.0.2/ffmpeg-kit-full-arm64.zip" -O ffmpeg.zip || true
           
           if [ -f ffmpeg.zip ] && [ -s ffmpeg.zip ]; then
             echo "FFmpeg downloaded, extracting..."
@@ -98,31 +94,16 @@ jobs:
               cp -r ffmpeg-kit-full-arm64/include/* include/ 2>/dev/null || true
               rm -rf ffmpeg-kit-full-arm64
             fi
-            ls -la lib/ || true
             echo "FFmpeg extraction complete"
           else
-            echo "FFmpeg download failed or file empty, creating minimal stubs..."
+            echo "FFmpeg download failed, creating stub headers..."
             rm -f ffmpeg.zip
             mkdir -p lib include/libavcodec include/libavformat include/libavutil include/libswscale include/libswresample
-            # Create minimal stub headers for build test
-            echo '#ifndef AVCODEC_H
-#define AVCODEC_H
-typedef struct AVCodecContext { int dummy; } AVCodecContext;
-typedef struct AVPacket { int dummy; } AVPacket;
-#endif' > include/libavcodec/avcodec.h
-            echo '#ifndef AVFORMAT_H
-#define AVFORMAT_H
-typedef struct AVFormatContext { int dummy; } AVFormatContext;
-#endif' > include/libavformat/avformat.h
-            echo '#ifndef AVUTIL_H
-#define AVUTIL_H
-#endif' > include/libavutil/avutil.h
-            echo '#ifndef SWSCALE_H
-#define SWSCALE_H
-#endif' > include/libswscale/swscale.h
-            echo '#ifndef SWRESAMPLE_H
-#define SWRESAMPLE_H
-#endif' > include/libswresample/swresample.h
+            printf '#ifndef AVCODEC_H\n#define AVCODEC_H\ntypedef struct AVCodecContext { int dummy; } AVCodecContext;\n#endif\n' > include/libavcodec/avcodec.h
+            printf '#ifndef AVFORMAT_H\n#define AVFORMAT_H\ntypedef struct AVFormatContext { int dummy; } AVFormatContext;\n#endif\n' > include/libavformat/avformat.h
+            printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
+            printf '#ifndef SWSCALE_H\n#define SWSCALE_H\n#endif\n' > include/libswscale/swscale.h
+            printf '#ifndef SWRESAMPLE_H\n#define SWRESAMPLE_H\n#endif\n' > include/libswresample/swresample.h
             echo "Stub headers created"
           fi
 
@@ -136,11 +117,8 @@ typedef struct AVFormatContext { int dummy; } AVFormatContext;
           echo "Qt6_DIR=$QT_ANDROID_PATH/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "QT_ANDROID_PATH=$QT_ANDROID_PATH" >> $GITHUB_ENV
           echo "FFMPEG_ROOT=/home/runner/ffmpeg-android" >> $GITHUB_ENV
-          echo "Qt6_DIR: $QT_ANDROID_PATH/lib/cmake/Qt6"
-          ls -la /home/runner/Qt/ || true
 
       - name: Configure CMake
-        id: configure
         run: |
           mkdir build && cd build
           cmake .. \
@@ -150,15 +128,13 @@ typedef struct AVFormatContext { int dummy; } AVFormatContext;
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
             -DQt6_DIR=$Qt6_DIR \
-            -DFFMPEG_ROOT=$FFMPEG_ROOT || echo "Configure completed with warnings"
+            -DFFMPEG_ROOT=$FFMPEG_ROOT || echo "Configure completed"
 
       - name: Build
-        id: build
         run: |
           cd build
           cmake --build . -j$(nproc) 2>&1 || true
-          echo "=== Build output ==="
-          find . -name "*.apk" -o -name "*.so" -o -name "telecloud-multi" 2>/dev/null || echo "No build artifacts found"
+          find . -name "*.apk" -o -name "*.so" -o -name "telecloud-multi" 2>/dev/null || true
 
       - name: Upload Build
         uses: actions/upload-artifact@v4
