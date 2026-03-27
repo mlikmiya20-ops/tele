@@ -1,4 +1,4 @@
-# TELECLOUD-MULTI Android Build - Fixed
+# TELECLOUD-MULTI Android Build - Fixed v2
 name: Build Android APK
 
 on:
@@ -53,7 +53,7 @@ jobs:
         id: cache-ffmpeg
         with:
           path: /home/runner/ffmpeg-android
-          key: ffmpeg-android-arm64-v12
+          key: ffmpeg-android-arm64-v13
 
       - name: Download FFmpeg for Android
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
@@ -82,20 +82,25 @@ jobs:
             printf '#ifndef AVUTIL_H\n#define AVUTIL_H\n#endif\n' > include/libavutil/avutil.h
           fi
 
-      - name: Configure CMake (Console)
+      - name: Configure and Build
         run: |
-          mkdir build && cd build
-          
+          # Set variables
           QT_ANDROID_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
           QT_HOST_PATH=/home/runner/Qt/${{ env.QT_VERSION }}/gcc_64
+          ANDROID_NDK=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
           
           echo "QT_ANDROID_PATH=$QT_ANDROID_PATH"
           echo "QT_HOST_PATH=$QT_HOST_PATH"
-          ls -la $QT_ANDROID_PATH/lib/cmake/Qt6/ | head -5
+          echo "ANDROID_NDK=$ANDROID_NDK"
+          
+          # Verify Qt exists
+          ls -la $QT_ANDROID_PATH/lib/cmake/Qt6/Qt6Config.cmake || echo "Qt6Config.cmake not found!"
+          
+          mkdir build && cd build
           
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-26 \
             -DANDROID_STL=c++_shared \
@@ -103,10 +108,7 @@ jobs:
             -DQT_HOST_PATH=$QT_HOST_PATH \
             -DFFMPEG_ROOT=/home/runner/ffmpeg-android \
             -DENABLE_GUI=OFF
-
-      - name: Build
-        run: |
-          cd build
+          
           cmake --build . -j$(nproc)
           
           echo "=== Build Artifacts ==="
