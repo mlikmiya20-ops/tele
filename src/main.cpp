@@ -17,7 +17,6 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QDebug>
-#include <QMessageBox>
 
 #ifdef Q_OS_ANDROID
 #include <QtAndroid>
