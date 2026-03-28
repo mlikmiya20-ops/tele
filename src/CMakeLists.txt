@@ -174,6 +174,16 @@ else()
 endif()
 
 # =============================================================================
+# Windows GUI Application (no console window)
+# =============================================================================
+if(WIN32 AND ENABLE_GUI)
+    # This prevents the console window from appearing on Windows
+    set_target_properties(telecloud-multi PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+endif()
+
+# =============================================================================
 # Include Directories
 # =============================================================================
 target_include_directories(telecloud-multi PRIVATE
